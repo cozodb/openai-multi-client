@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openai_multi_client"
+authors = [
+    { name = "Ziyang Hu", email = "hu.ziyang@cantab.net" },
+]
+description = "A parallel client for OpenAI API (and more)"
+readme = "README.md"
+requires-python = ">=3.7"
+keywords = ["openai", "client"]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "openai",
+    "tenacity",
+    "aioprocessing",
+]
+version = "0.1.0"
