@@ -2,7 +2,7 @@ import logging
 import asyncio
 from dataclasses import dataclass
 from threading import Thread
-from typing import Any
+from typing import Any, Optional
 
 from aioprocessing import AioJoinableQueue, AioQueue
 from tenacity import wait_random_exponential, stop_after_attempt, AsyncRetrying, RetryError
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class Payload:
     endpoint: str
     data: dict
-    metadata: dict | None
+    metadata: Optional[dict]
     max_retries: int
     retry_multiplier: float
     retry_max: float
@@ -31,9 +31,9 @@ class OpenAIMultiClient:
                  wait_interval: float = 0,
                  retry_multiplier: float = 1,
                  retry_max: float = 60,
-                 endpoint: str | None = None,
-                 data_template: dict | None = None,
-                 metadata_template: dict | None = None,
+                 endpoint: Optional[str] = None,
+                 data_template: Optional[dict] = None,
+                 metadata_template: Optional[dict] = None,
                  custom_api=None):
         self._endpoint = endpoint
         self._wait_interval = wait_interval
@@ -138,11 +138,11 @@ class OpenAIMultiClient:
 
     def request(self,
                 data: dict,
-                endpoint: str | None = None,
-                metadata: dict | None = None,
-                max_retries: int | None = None,
-                retry_multiplier: float | None = None,
-                retry_max: float | None = None):
+                endpoint: Optional[str] = None,
+                metadata: Optional[dict] = None,
+                max_retries: Optional[int] = None,
+                retry_multiplier: Optional[float] = None,
+                retry_max: Optional[float] = None):
         payload = Payload(
             endpoint=endpoint or self._endpoint,
             data={**self._data_template, **data},
@@ -202,11 +202,11 @@ class OpenAIMultiOrderedClient(OpenAIMultiClient):
 
     def request(self,
                 data: dict,
-                endpoint: str | None = None,
-                metadata: dict | None = None,
-                max_retries: int | None = None,
-                retry_multiplier: float | None = None,
-                retry_max: float | None = None):
+                endpoint: Optional[str] = None,
+                metadata: Optional[dict] = None,
+                max_retries: Optional[int] = None,
+                retry_multiplier: Optional[float] = None,
+                retry_max: Optional[float] = None):
         payload = OrderedPayload(
             endpoint=endpoint or self._endpoint,
             data={**self._data_template, **data},
