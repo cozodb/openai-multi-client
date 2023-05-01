@@ -1,17 +1,9 @@
-import logging
 import asyncio
-from threading import Thread
 
 from openai_multi_client import OpenAIMultiClient, Payload, OpenAIMultiOrderedClient
 
 
 def test(ordered):
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()]
-    )
-
     async def mock(payload: Payload):
         import random
 
@@ -28,13 +20,13 @@ def test(ordered):
         api = OpenAIMultiClient(custom_api=mock, max_retries=3, retry_multiplier=2)
 
     def put_data():
-        for i in range(100):
-            api.put({"prompt": f"This is test {i + 1}"}, metadata={'id': i + 1},
-                    endpoint="completions")
-        api.close()
+        for pid in range(100):
+            pid = pid + 1
+            print(f"Requesting {pid}")
+            api.request({"prompt": f"This is test {pid}"}, metadata={'id': pid},
+                        endpoint="completions")
 
-    input_thread = Thread(target=put_data)
-    input_thread.start()
+    api.run_request_function(put_data)
 
     print('*' * 20)
     i = 0

@@ -28,6 +28,7 @@ class OpenAIMultiClient:
     def __init__(self,
                  concurrency: int = 10,
                  max_retries: int = 10,
+                 wait_interval: float = 0,
                  retry_multiplier: float = 1,
                  retry_max: float = 60,
                  endpoint: str | None = None,
@@ -35,6 +36,7 @@ class OpenAIMultiClient:
                  metadata_template: dict | None = None,
                  custom_api=None):
         self._endpoint = endpoint
+        self._wait_interval = wait_interval
         self._data_template = data_template or {}
         self._metadata_template = metadata_template or {}
         self._max_retries = max_retries
@@ -43,12 +45,22 @@ class OpenAIMultiClient:
         self._concurrency = concurrency
         self._loop = asyncio.new_event_loop()
         self._in_queue = AioJoinableQueue(maxsize=concurrency)
-        self.out_queue = AioQueue(maxsize=concurrency)
+        self._out_queue = AioQueue(maxsize=concurrency)
         self._event_loop_thread = Thread(target=self._run_event_loop)
         self._event_loop_thread.start()
         self._mock_api = custom_api
         for i in range(concurrency):
             asyncio.run_coroutine_threadsafe(self._worker(i), self._loop)
+
+    def run_request_function(self, input_function, *args, stop_at_end=True, **kwargs):
+        if stop_at_end:
+            def f(*args, **kwargs):
+                input_function(*args, **kwargs)
+                self.close()
+        else:
+            f = input_function
+        input_thread = Thread(target=f, args=args, kwargs=kwargs)
+        input_thread.start()
 
     def _run_event_loop(self):
         asyncio.set_event_loop(self._loop)
@@ -59,19 +71,17 @@ class OpenAIMultiClient:
         if self._mock_api:
             payload.response = await self._mock_api(payload)
         elif payload.endpoint == "completions":
-            payload.response = await openai.Completion.create(**payload.data)
-        elif payload.endpoint == "chat.completions" or payload.endpoint == "chat":
-            payload.response = await openai.ChatCompletion.create(**payload.data)
+            payload.response = await openai.Completion.acreate(**payload.data)
+        elif payload.endpoint == "chat.completions" or payload.endpoint == "chats":
+            payload.response = await openai.ChatCompletion.acreate(**payload.data)
         elif payload.endpoint == "embeddings":
-            payload.response = await openai.Embedding.create(**payload.data)
+            payload.response = await openai.Embedding.acreate(**payload.data)
         elif payload.endpoint == "edits":
-            payload.response = await openai.Edit.create(**payload.data)
-        elif payload.endpoint == "audio":
-            payload.response = await openai.Audio.create(**payload.data)
+            payload.response = await openai.Edit.acreate(**payload.data)
         elif payload.endpoint == "images":
-            payload.response = await openai.Image.create(**payload.data)
+            payload.response = await openai.Image.acreate(**payload.data)
         elif payload.endpoint == "fine-tunes":
-            payload.response = await openai.FineTune.create(**payload.data)
+            payload.response = await openai.FineTune.acreate(**payload.data)
         else:
             raise ValueError(f"Unknown endpoint {payload.endpoint}")
         logger.debug(f"Processed {payload}")
@@ -94,7 +104,7 @@ class OpenAIMultiClient:
                         try:
                             payload.attempt = attempt.retry_state.attempt_number
                             payload = await self._process_payload(payload)
-                            await self.out_queue.coro_put(payload)
+                            await self._out_queue.coro_put(payload)
                             self._in_queue.task_done()
                         except Exception:
                             logger.exception(f"Error processing {payload}")
@@ -102,15 +112,16 @@ class OpenAIMultiClient:
             except RetryError:
                 payload.failed = True
                 logger.error(f"Failed to process {payload}")
-                await self.out_queue.coro_put(payload)
+                await self._out_queue.coro_put(payload)
                 self._in_queue.task_done()
+            await asyncio.sleep(self._wait_interval)
 
     def close(self):
         try:
             for i in range(self._concurrency):
                 self._in_queue.put(None)
             self._in_queue.join()
-            self.out_queue.put(None)
+            self._out_queue.put(None)
             self._loop.call_soon_threadsafe(self._loop.stop)
             self._event_loop_thread.join()
         except Exception as e:
@@ -120,19 +131,18 @@ class OpenAIMultiClient:
         return self
 
     def __next__(self):
-        out = self.out_queue.get()
+        out = self._out_queue.get()
         if out is None:
             raise StopIteration
         return out
 
-    def put(self,
-            data: dict,
-            endpoint: str | None = None,
-            *,
-            metadata: dict | None = None,
-            max_retries: int | None = None,
-            retry_multiplier: float | None = None,
-            retry_max: float | None = None):
+    def request(self,
+                data: dict,
+                endpoint: str | None = None,
+                metadata: dict | None = None,
+                max_retries: int | None = None,
+                retry_multiplier: float | None = None,
+                retry_max: float | None = None):
         payload = Payload(
             endpoint=endpoint or self._endpoint,
             data={**self._data_template, **data},
@@ -142,6 +152,14 @@ class OpenAIMultiClient:
             retry_max=retry_max or self._retry_max
         )
         self._in_queue.put(payload)
+
+
+class OrderedPayload(Payload):
+    put_counter: int
+
+    def __init__(self, *args, put_counter, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.put_counter = put_counter
 
 
 class OpenAIMultiOrderedClient(OpenAIMultiClient):
@@ -160,7 +178,7 @@ class OpenAIMultiOrderedClient(OpenAIMultiClient):
             if self._stopped:
                 out = None
             else:
-                out = self.out_queue.get()
+                out = self._out_queue.get()
             if out is None:
                 self._stopped = True
                 if self._get_counter == self._put_counter:
@@ -171,7 +189,7 @@ class OpenAIMultiOrderedClient(OpenAIMultiClient):
                     self._get_counter += 1
                     return out
 
-            data_counter = out.metadata.get("_put_counter")
+            data_counter = out.put_counter
             if data_counter == self._get_counter:
                 self._get_counter += 1
                 return out
@@ -182,8 +200,21 @@ class OpenAIMultiOrderedClient(OpenAIMultiClient):
                 self._get_counter += 1
                 return out
 
-    def put(self, *args, metadata=None, **kwargs):
-        metadata = metadata or {}
-        metadata["_put_counter"] = self._put_counter
+    def request(self,
+                data: dict,
+                endpoint: str | None = None,
+                metadata: dict | None = None,
+                max_retries: int | None = None,
+                retry_multiplier: float | None = None,
+                retry_max: float | None = None):
+        payload = OrderedPayload(
+            endpoint=endpoint or self._endpoint,
+            data={**self._data_template, **data},
+            metadata={**self._metadata_template, **(metadata or {})},
+            max_retries=max_retries or self._max_retries,
+            retry_multiplier=retry_multiplier or self._retry_multiplier,
+            retry_max=retry_max or self._retry_max,
+            put_counter=self._put_counter
+        )
         self._put_counter += 1
-        super().put(*args, metadata=metadata, **kwargs)
+        self._in_queue.put(payload)
