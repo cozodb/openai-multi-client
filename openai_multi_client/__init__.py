@@ -22,6 +22,11 @@ class Payload:
     attempt: int = 0
     failed: bool = False
     response: Any = None
+    callback: Any = None
+
+    def call_callback(self):
+        if self.callback:
+            self.callback(self)
 
 
 class OpenAIMultiClient:
@@ -134,12 +139,14 @@ class OpenAIMultiClient:
         out = self._out_queue.get()
         if out is None:
             raise StopIteration
+        out.call_callback()
         return out
 
     def request(self,
                 data: dict,
                 endpoint: Optional[str] = None,
                 metadata: Optional[dict] = None,
+                callback: Any = None,
                 max_retries: Optional[int] = None,
                 retry_multiplier: Optional[float] = None,
                 retry_max: Optional[float] = None):
@@ -147,11 +154,16 @@ class OpenAIMultiClient:
             endpoint=endpoint or self._endpoint,
             data={**self._data_template, **data},
             metadata={**self._metadata_template, **(metadata or {})},
+            callback=callback,
             max_retries=max_retries or self._max_retries,
             retry_multiplier=retry_multiplier or self._retry_multiplier,
             retry_max=retry_max or self._retry_max
         )
         self._in_queue.put(payload)
+
+    def pull_all(self):
+        for _ in self:
+            pass
 
 
 class OrderedPayload(Payload):
@@ -187,23 +199,27 @@ class OpenAIMultiOrderedClient(OpenAIMultiClient):
                     out = self._get_cache[self._get_counter]
                     del self._get_cache[self._get_counter]
                     self._get_counter += 1
+                    out.call_callback()
                     return out
 
             data_counter = out.put_counter
             if data_counter == self._get_counter:
                 self._get_counter += 1
+                out.call_callback()
                 return out
             self._get_cache[data_counter] = out
             if self._get_counter in self._get_cache:
                 out = self._get_cache[self._get_counter]
                 del self._get_cache[self._get_counter]
                 self._get_counter += 1
+                out.call_callback()
                 return out
 
     def request(self,
                 data: dict,
                 endpoint: Optional[str] = None,
                 metadata: Optional[dict] = None,
+                callback: Any = None,
                 max_retries: Optional[int] = None,
                 retry_multiplier: Optional[float] = None,
                 retry_max: Optional[float] = None):
@@ -211,6 +227,7 @@ class OpenAIMultiOrderedClient(OpenAIMultiClient):
             endpoint=endpoint or self._endpoint,
             data={**self._data_template, **data},
             metadata={**self._metadata_template, **(metadata or {})},
+            callback=callback,
             max_retries=max_retries or self._max_retries,
             retry_multiplier=retry_multiplier or self._retry_multiplier,
             retry_max=retry_max or self._retry_max,
