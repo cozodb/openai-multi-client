@@ -1,7 +1,4 @@
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 from openai_multi_client import OpenAIMultiClient, Payload
 
 
