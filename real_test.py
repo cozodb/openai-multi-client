@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 from openai_multi_client import OpenAIMultiClient, Payload
 
 
@@ -37,7 +40,7 @@ def on_success(result: Payload):
         print(f"Failed {pid}")
     else:
         print(f"Got response for {pid}:",
-              result.response['choices'][0]['message']['content'])
+              result.response.choices[0].message.content)
 
 
 def test_callback():

@@ -1,5 +1,7 @@
 import asyncio
+from dotenv import load_dotenv
 
+load_dotenv()
 from openai_multi_client import OpenAIMultiClient, Payload, OpenAIMultiOrderedClient
 
 
@@ -12,7 +14,7 @@ def test(ordered):
         rand_fail = random.random()
         if rand_fail < 0.3:
             raise Exception("Mocked exception")
-        return {"response": f"mocked {payload.metadata['id']}"}
+        return {"response": f"mocked {payload.metadata.get('id')}"}
 
     if ordered:
         api = OpenAIMultiOrderedClient(custom_api=mock, max_retries=3, retry_multiplier=2)
@@ -35,9 +37,10 @@ def test(ordered):
         i += 1
         if response.failed:
             failed += 1
-            print(f"Failed {response.metadata['id']}: {i}/100")
+            print(f"Failed {response.metadata.get('id')}: {i}/100")
         else:
-            print(f"Got response {response.metadata['id']}: {i}/100")
+            print(f"Got response {response.metadata.get('id')}: {i}/100")
+
 
     print('*' * 20)
     print(f"Total failed: {failed}/100")
