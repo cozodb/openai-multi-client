@@ -6,7 +6,9 @@ from typing import Any, Optional
 
 from aioprocessing import AioJoinableQueue, AioQueue
 from tenacity import wait_random_exponential, stop_after_attempt, AsyncRetrying, RetryError
-import openai
+from openai import AsyncOpenAI
+
+aclient = AsyncOpenAI()
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +78,17 @@ class OpenAIMultiClient:
         if self._mock_api:
             payload.response = await self._mock_api(payload)
         elif payload.endpoint == "completions":
-            payload.response = await openai.Completion.acreate(**payload.data)
+            payload.response = await aclient.completions.create(**payload.data)
         elif payload.endpoint == "chat.completions" or payload.endpoint == "chats":
-            payload.response = await openai.ChatCompletion.acreate(**payload.data)
+            payload.response = await aclient.chat.completions.create(**payload.data)
         elif payload.endpoint == "embeddings":
-            payload.response = await openai.Embedding.acreate(**payload.data)
+            payload.response = await aclient.embeddings.create(**payload.data)
         elif payload.endpoint == "edits":
-            payload.response = await openai.Edit.acreate(**payload.data)
+            payload.response = await aclient.edits.create(**payload.data)
         elif payload.endpoint == "images":
-            payload.response = await openai.Image.acreate(**payload.data)
+            payload.response = await aclient.images.generate(**payload.data)
         elif payload.endpoint == "fine-tunes":
-            payload.response = await openai.FineTune.acreate(**payload.data)
+            payload.response = await aclient.fine_tunes.create(**payload.data)
         else:
             raise ValueError(f"Unknown endpoint {payload.endpoint}")
         logger.debug(f"Processed {payload}")

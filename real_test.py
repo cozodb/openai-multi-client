@@ -37,7 +37,7 @@ def on_success(result: Payload):
         print(f"Failed {pid}")
     else:
         print(f"Got response for {pid}:",
-              result.response['choices'][0]['message']['content'])
+              result.response.choices[0].message.content)
 
 
 def test_callback():
